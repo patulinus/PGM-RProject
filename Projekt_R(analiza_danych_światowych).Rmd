@@ -1,0 +1,152 @@
+---
+title: "Wpływ czynników politycznych na ogólną populację Afganistanu w latach 1970-2020. Raport z analizy danych"
+author: "Paulina Grobelna-Mazurek"
+date: '2022-05-21'
+output: 
+  html_document: 
+    toc: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Podsumowanie analizy (*Executive Summary*)
+
+Sytuacja polityczna Afganistaniu na przestrzeni kilku ostatnich dziesięcioleci była i nadal jest niezwykle trudna. W wyniku toczonych konfliktów i walk o władzę cierpi nieodmiennie ludność cywilna. Przedmiotowa analiza dowiodła wpływu przewrotów politycznych na dynamikę wzrostu populacyjnego i ogólną liczbę ludności w tym kraju. Przeprowadzono ją na podstawie World Development Indicators - danych statystycznych dotyczących wskaźników rozwoju światowego w latach 1970-2020 i udostępnionych przez organizację The World Bank.
+
+# Raport z analizy danych
+
+## Wczytanie bibliotek wykorzystywancyh w raporcie
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(lubridate)
+library(readxl)
+library(tidyr)
+library(plotly)
+library(scales)
+```
+
+## Wczytanie pliku z danymi, ich podstawowa transformacja i analiza
+
+### Wczytanie pliku z danymi.
+
+
+```{r}
+WDI <- read_excel("Data/World_Development_Indicators.xlsx")
+
+kable(head(WDI))
+```
+
+###  Przekształcenia i analizy
+
+Zauważmy, że w tabeli WDI znajdują się wartości puste. To, co z nimi uczynimy, zależy od tego, jaką przekazują one informację. W naszej sytuacji samo występowanie NaN może stanowić przedmiot analiz jako czynnik potencjalnie odzwierciedlający polityczne losy danego państwa (tutaj: Afganistan). Wynika to ze sposobu gromadzenia danych WDI. Dostarczają je m.in. instytucje rządowe i tzw. NGO'sy. W okresach przewrotów politycznych czy pod rządami autokratycznymi część danych może nie być w ogóle gromadzona i udostępniana, a działalność organizacji pozarządowych znacznie ograniczona. To, jaką wartość wprowadzimy w miejsce wartości pustych, ma więc ogromne znaczenie z perspektywy prowadzonych analiz. W niniejszym projekcie warto więc pozostawić je bez zmian.
+
+Plik, na podstawie którego będziemy przeprowadzać analizy, przechowuje dane dotyczące wskaźników światowego rozwoju z podziałem na poszczególne kraje świata. Z racji tego, iż naszą uwagę koncentrować będziemy tylko na Afganistanie wyfiltrujmy z niego rekordy dotyczące tylko tego kraju i zapiszmy je w odrębnej tabeli (AFG). 
+
+Zanim to uczynimy, zmieńmy jeszcze nazwy kolumn, usuwając z nich spację, aby móc bardziej efektywnie filtrować dane.
+
+```{r}
+WDI <- rename(WDI, 
+                     'CountryName' = 'Country Name',
+                     'CountryCode' = 'Country Code',
+                     'SeriesName' = 'Series Name',
+                     'SeriesCode' = 'Series Code')
+```
+
+Teraz przejdźmy do stworzenia tabeli AFG, zawierającej dane dotyczące Afganistanu.
+
+```{r}
+AFG <- filter(WDI, CountryName == 'Afghanistan')
+
+kable(head(AFG))
+```
+
+Wyświetlmy dane o naszej tabeli. 
+
+W następnym kroku przekształcimy AFG w taki sposób, aby informacje dotyczące roku przechowywane jako nazwy kolumn znalazły się w jednej kolumnie o nazwie 'year'. Poprawimy też sposób zapisu daty. 
+
+```{r}
+AFG <- AFG %>% gather("year", "value", 5:ncol(AFG)) %>%
+  mutate(year=substr(year, 1, 4))
+
+kable(head(AFG))
+```
+
+Nie jest to jeszcze koniec przekształceń. W tabeli AFG przechowywane jest wiele wskaźników rozwoju światowego (kolumna: 'SeriesName'). Wyświetlmy ich listę, aby wybrać te, potrzebne dla naszej analizy.
+
+```{r}
+
+IndUnique <- distinct(AFG, SeriesName)
+print(IndUnique, n = Inf)
+
+```
+
+Informacje, które będą nas interesowały, to: 'Population, total', 'Population, male' i 'Population, female'. W związku z tym ograniczmy naszą tabelę do wierszy przechowujących te dane. Od razu odrzucimy także niepotrzebne kolumny, takie jak 'CountryName', 'CountryCode' i 'SeriesCode'.
+
+```{r}
+AFG <- select(AFG, -c(CountryName, CountryCode, SeriesCode))
+
+
+indicators <- c("Population, total", "Population, male", "Population, female")
+
+AFG <- filter(AFG, SeriesName %in% indicators)
+
+kable(head(AFG))
+```
+
+W następnym kroku wykonamy ostatnie już przekształcenie naszej tabeli. Zależy nam bowiem, aby każdy wskaźnik był kolumną przechowującą wartość dla danego roku. Zmieńmy również ich nazwy.
+
+```{r}
+AFG <- AFG %>%
+  spread(SeriesName, value) %>%
+  rename(
+        'Population_T' = 'Population, total',
+        'Population_M' = 'Population, male',
+        'Population_F' = 'Population, female') 
+
+kable(AFG)
+```
+
+Na koniec wyświetlmy dane o naszej tabeli.
+
+```{r}
+summary_table = summary(AFG)               
+kable(summary_table)
+```
+
+Składa się ona z czterech kolumn i 51 wierszy, i przechowuje dane typu 'character'. Zamieńmy je na liczbowe ('numeric') we wszystkich kolumnach.
+
+```{r}
+AFG <- AFG %>%  mutate_at(c('year', 'Population_T', 'Population_M', 'Population_F'), as.numeric)
+
+summary_table = summary(AFG)               
+kable(summary_table)
+```
+
+## Wizualizacja danych i analiza.
+
+Naszym zadaniem jest zwizualizowanie wskaźnika populacji Afganistanu w badanym okresie (1970-2020), także z podziałem na płeć (M, F) i sprawdzenie, czy odzwierciedlają one polityczną historię regionu.
+
+```{r}
+Vis_AFG <- ggplot(AFG, aes(x=year)) +
+  geom_line(aes(y=Population_T, colour = 'Population_T')) + 
+  geom_line(aes(y=Population_M, colour = 'Population_M')) +
+  geom_line(aes(y=Population_F, colour = 'Population_F')) +
+  labs(title = "Ludność Afganistanu w latach 1970-2020", x = "Year", y = "Population (mln)") +
+  scale_y_continuous(labels=function(x) format(x, big.mark = " ", scientific = FALSE)) +
+  theme(legend.title = element_blank()) +
+  theme_bw()
+
+ggplotly(Vis_AFG)
+```
+
+Na przedstawionym wykresie została przedstawiona dynamika wzrostu populacji Afganistanu. Przez większość czasu utrzymywała się ona na stałym poziomie, da się jednak wskazać okresy jej spowolnienia, czy nawet spadku. Najwyraźniejszy z nich przypadł na lata 80. Zanotowana w 1987 r. liczba ludności (11 604 538) spadła niemal do poziomu z początku lat 70 (11 173 654). Państwo Afganistan doświadczało wówczas krwawej wojny domowej (1978-1992). Lata 1979-1989 stanowią cezurę dla intwerencji, jaką na terenie tego kraju podjął na prośbę afgańskiego rządu ZSRR. Działania wojenne toczyły się przeciwko Mudżahedinom wspieranym przez siły wojskowe USA. Tragiczne w skutkach konsekwencje sytuacji politycznej ponosiła wówczas ludność cywilna, nie tylko ginąca w walkach. Cierpiała ona głód, część populacji uszła z kraju. 
+
+Był to jedyny taki moment w historii Afganistanu. Późniejsze targające tym krajem konflikty również wpływały na spowolnienie dynamiki wzrostu populacji (zob. np. koniec lat 90, kiedy władzę w kraju przejmowali Talibowie), nigdy jednak nie doprowadziły do jej spadku. 
+
+Ponadto, w oparciu o zaprezentowane na wizualizacji dane dotyczące płci należy stwierdzić, że odsetek kobiet w społeczeństwie afgańskim był dla analizowanego okresu niższy niż mężczyzn. Aż do przełomu lat 90. proporcje między płacią kobiecą i męską rozkładały się podobnie, po 1990 r. udział mężczyzn w społeczeństwie stopniowo się zwiększał. Aby znaleźć źródło takiego stanu rzeczy, należałoby sięgnąć do dodatkowych danych i sprawdzić np. poziom śmiertelności z podziałem na płcie. Na wyższą liczbę zgonów wśród kobiet mogą wpływać nie tylko bezpośrednie działania wojenne, czy prowadzona na tym terenie partyzantka, ale również słaba opieka medyczna, która może zwiększać śmiertelność przy porodach. Co więcej, sytuacja kobiet afgańskich jest niezwykle trudna także ze względów religijnych i kulturowych. I ona może znajdować odzwierciedlenie na przedstawionej wizualizacji.
